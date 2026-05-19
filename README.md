@@ -31,6 +31,31 @@ Open <http://localhost:3000>.
 
 ---
 
+## Deploying to Vercel
+
+The `.env` file is gitignored — Vercel does **not** see it. You must add the
+same two variables to the Vercel project before the first request will succeed:
+
+1. Vercel dashboard → your project → **Settings** → **Environment Variables**
+2. Add both for Production / Preview / Development:
+   - `NEXT_PUBLIC_SUPABASE_URL` → `https://<project-ref>.supabase.co`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` → `sb_publishable_...`
+3. (Optional) `NEXT_PUBLIC_SITE_URL` → your deployed URL (e.g.
+   `https://kittithat-it-man-landing-page.vercel.app`). If unset, the signup
+   action falls back to the incoming request's host, which works for most
+   setups.
+4. After saving the vars, **Redeploy** the latest commit from the Deployments
+   tab so the new env vars take effect.
+5. In **Supabase dashboard → Authentication → URL Configuration**, add your
+   Vercel URL (and `https://<vercel-url>/admin/auth/callback`) to the allowed
+   redirect URLs, otherwise email confirmation links will fail.
+
+If env vars are missing the middleware logs a warning and lets the request
+through; admin pages will still redirect to `/admin/login`, but the login
+itself will fail until the vars are set.
+
+---
+
 ## Routes
 
 ### Public

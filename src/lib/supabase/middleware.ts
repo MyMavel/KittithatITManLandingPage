@@ -6,10 +6,18 @@ type CookiesToSet = { name: string; value: string; options: CookieOptions }[];
 export async function updateSession(req: NextRequest) {
   let res = NextResponse.next({ request: req });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error(
+      "[middleware] Supabase env vars are missing — auth checks disabled.",
+    );
+    return { res, user: null as null };
+  }
+
+  try {
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
         getAll() {
           return req.cookies.getAll();
@@ -24,12 +32,15 @@ export async function updateSession(req: NextRequest) {
           }
         },
       },
-    },
-  );
+    });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  return { res, user };
+    return { res, user };
+  } catch (err) {
+    console.error("[middleware] Supabase session check failed:", err);
+    return { res, user: null as null };
+  }
 }
