@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import StatusBadge from "@/components/admin/StatusBadge";
 import { Search } from "lucide-react";
@@ -6,6 +6,15 @@ import { Search } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<{ q?: string }>;
+
+type CustomerRow = {
+  id: string;
+  name: string;
+  email: string;
+  company: string | null;
+  status: string;
+  created_at: string;
+};
 
 export default async function CustomersPage({
   searchParams,
@@ -15,18 +24,21 @@ export default async function CustomersPage({
   const { q } = await searchParams;
   const query = q?.trim() ?? "";
 
-  const customers = await prisma.customer.findMany({
-    where: query
-      ? {
-          OR: [
-            { name: { contains: query } },
-            { email: { contains: query } },
-            { company: { contains: query } },
-          ],
-        }
-      : undefined,
-    orderBy: { createdAt: "desc" },
-  });
+  const supabase = await createClient();
+  let req = supabase
+    .from("customers")
+    .select("id,name,email,company,status,created_at")
+    .order("created_at", { ascending: false });
+
+  if (query) {
+    const pattern = `%${query.replace(/[%_]/g, "")}%`;
+    req = req.or(
+      `name.ilike.${pattern},email.ilike.${pattern},company.ilike.${pattern}`,
+    );
+  }
+
+  const { data, error } = await req;
+  const customers = ((!error && data) || []) as CustomerRow[];
 
   return (
     <div className="space-y-6">
@@ -54,7 +66,10 @@ export default async function CustomersPage({
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
         />
         {query && (
-          <Link href="/admin/customers" className="text-xs text-slate-500 hover:text-slate-700">
+          <Link
+            href="/admin/customers"
+            className="text-xs text-slate-500 hover:text-slate-700"
+          >
             Clear
           </Link>
         )}
@@ -97,7 +112,7 @@ export default async function CustomersPage({
                     <StatusBadge status={c.status} />
                   </td>
                   <td className="px-4 py-3 text-slate-500">
-                    {new Date(c.createdAt).toLocaleString()}
+                    {new Date(c.created_at).toLocaleString()}
                   </td>
                 </tr>
               ))}

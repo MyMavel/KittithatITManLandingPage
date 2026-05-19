@@ -1,11 +1,11 @@
 # KittithatITMan — Landing Page + Admin ERP (prototype)
 
-A Next.js 15 prototype with two surfaces:
+A Next.js 16 prototype with two surfaces:
 
 - **Public landing page** at `/` — hero, features, pricing, and contact form.
-- **Admin backend** at `/admin` — gated CRM dashboard to manage leads captured from the contact form.
+- **Admin backend** at `/admin` — gated CRM dashboard powered by Supabase Auth + Postgres.
 
-Stack: Next.js 15 (App Router) · TypeScript · Tailwind CSS v4 · Prisma · SQLite · `jose` for signed session cookies · `zod` for validation.
+Stack: Next.js 16 (App Router, Turbopack) · TypeScript · Tailwind CSS v4 · Supabase (Postgres + Auth + RLS) · `@supabase/ssr` · `zod`.
 
 ---
 
@@ -17,16 +17,17 @@ npm install
 
 # 2. configure environment
 cp .env.example .env
-# then open .env and fill in ADMIN_USERNAME, ADMIN_PASSWORD, SESSION_SECRET
+# then open .env and fill in NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY
+# (find both at https://supabase.com/dashboard -> your project -> Project Settings -> API)
 
-# 3. create the SQLite database
-npx prisma migrate dev --name init
-
-# 4. start the dev server
+# 3. start the dev server
 npm run dev
 ```
 
 Open <http://localhost:3000>.
+
+> The Supabase schema is already applied to the project. To re-apply / extend it,
+> see the migration in [docs/db/schema.sql](docs/db/schema.sql) or apply via the Supabase dashboard / CLI.
 
 ---
 
@@ -34,52 +35,78 @@ Open <http://localhost:3000>.
 
 ### Public
 - `/` — landing page
-- `POST /api/contact` — submits a lead (writes a `Customer` row)
+- `POST /api/contact` — submits a lead (insert into `public.customers` via anon RLS policy)
 
 ### Admin (gated)
-- `/admin/login` — sign in with `ADMIN_USERNAME` / `ADMIN_PASSWORD` from `.env`
+- `/admin/signup` — create a new admin account (email + password + name)
+- `/admin/login` — sign in
+- `/admin/auth/callback` — handles email-confirmation links from Supabase
 - `/admin` — dashboard with lead counts and recent leads
 - `/admin/customers` — searchable list of all leads
 - `/admin/customers/[id]` — view detail, change status, or delete
 
-### Admin API (require valid session cookie)
-- `GET /api/customers?q=...`
-- `PATCH /api/customers/:id` — `{ "status": "new" | "contacted" | "qualified" | "won" | "lost" }`
-- `DELETE /api/customers/:id`
+---
+
+## Database schema
+
+Two tables in `public`, both with RLS enabled.
+
+### `public.profiles`
+Mirrors `auth.users` 1:1 — a row is auto-created on signup via a trigger.
+
+| Column      | Type        | Default              |
+|-------------|-------------|----------------------|
+| id          | uuid (PK)   | references `auth.users(id)` ON DELETE CASCADE |
+| email       | text        | from `auth.users.email` |
+| full_name   | text        | from signup form (`user_metadata.full_name`) |
+| role        | text        | `'admin'` (one of `owner`, `admin`, `staff`) |
+| approved    | boolean     | `true`               |
+| created_at  | timestamptz | `now()`              |
+| updated_at  | timestamptz | `now()`              |
+
+**RLS:** users can SELECT and UPDATE only their own profile row.
+
+### `public.customers`
+Leads captured from the landing-page contact form.
+
+| Column      | Type        | Default              |
+|-------------|-------------|----------------------|
+| id          | uuid (PK)   | `gen_random_uuid()`  |
+| name        | text        | (required)           |
+| email       | text        | (required)           |
+| company     | text        | nullable             |
+| message     | text        | nullable             |
+| source      | text        | `'landing_contact_form'` |
+| status      | text        | `'new'` (one of `new`, `contacted`, `qualified`, `won`, `lost`) |
+| created_at  | timestamptz | `now()`              |
+| updated_at  | timestamptz | `now()` (auto-bump trigger) |
+
+**RLS:**
+- `INSERT` allowed for `anon` + `authenticated` (so the public contact form works).
+- `SELECT` requires an authenticated session.
+- `UPDATE` and `DELETE` additionally require an **approved** profile.
 
 ---
 
 ## How auth works
 
-- The login endpoint compares the submitted credentials against `ADMIN_USERNAME` / `ADMIN_PASSWORD` from `.env`.
-- On success it signs a JWT (`jose`, HS256, 7-day expiry) using `SESSION_SECRET` and sets an `admin_session` cookie (httpOnly, sameSite=lax).
-- `middleware.ts` verifies the cookie on every `/admin/*` and `/api/customers/*` request and redirects unauthenticated traffic to `/admin/login`.
+- **Signup** (`/admin/signup`) calls `supabase.auth.signUp({ email, password, options: { data: { full_name }, emailRedirectTo: '/admin/auth/callback' } })`. Supabase emails a confirmation link.
+- A Postgres trigger (`on_auth_user_created` → `public.handle_new_user`) inserts a matching `profiles` row.
+- **Email click** → `/admin/auth/callback?code=...` exchanges the code for a session and redirects to `/admin`.
+- **Login** (`/admin/login`) calls `supabase.auth.signInWithPassword`.
+- The Supabase session cookie is kept in sync by `middleware.ts` (via `@supabase/ssr`).
+- `/admin/*` (except `/admin/login`, `/admin/signup`, `/admin/auth/*`) is gated by middleware: no session ⇒ redirect to `/admin/login?next=…`.
 
-There is **one** hardcoded admin for the prototype. To support multiple admins, replace the credential check with a `User` table and password hashing.
-
----
-
-## Editing copy
-
-All landing-page copy lives in plain `.tsx` files under `src/components/landing/`:
-
-- `Hero.tsx` — headline, subheadline, CTAs
-- `Features.tsx` — `features` array near the top of the file
-- `Pricing.tsx` — `tiers` array near the top of the file
-- `Footer.tsx` — copyright + links
-
-Brand colour is defined in `src/app/globals.css` under the `@theme` block (`--color-brand-*`).
+> **Email confirmation:** new Supabase projects require email confirmation by default. To skip it for testing, open the Supabase dashboard → Authentication → Providers → Email → disable “Confirm email”.
 
 ---
 
 ## Useful scripts
 
 ```bash
-npm run dev          # start dev server
+npm run dev          # start dev server (Turbopack)
 npm run build        # production build
 npm run start        # serve the production build
-npm run db:migrate   # create a new migration (alias for prisma migrate dev)
-npm run db:studio    # open Prisma Studio to inspect the DB
 ```
 
 ---
@@ -87,20 +114,22 @@ npm run db:studio    # open Prisma Studio to inspect the DB
 ## Verify end-to-end
 
 1. `npm run dev`, open <http://localhost:3000>.
-2. Scroll to the **Contact** section, submit the form. You should see a success state.
-3. Open `npx prisma studio` in another terminal — a row appears in the `Customer` table.
-4. Visit `/admin` — you're redirected to `/admin/login`.
-5. Sign in with the credentials from `.env`.
-6. Dashboard shows lead counts. Open **Customers**, click your lead, change the status to *contacted*, save.
-7. Sign out via the header button — `/admin` should redirect to login again.
+2. Scroll to **Contact** and submit the form. You should see a success state.
+3. Open Supabase dashboard → Table editor → `customers` and confirm the row.
+4. Visit `/admin` → redirected to `/admin/login`.
+5. Click **Sign up**, create an account, confirm the email (or pre-disable confirmation in the dashboard).
+6. After confirming, sign in → dashboard appears with lead counts.
+7. Open **Customers**, click your lead, change status to *contacted*, save.
+8. Sign out via the header button → `/admin` redirects to login again.
 
 ---
 
 ## What's intentionally not built (yet)
 
 - Other ERP modules (Projects, Invoices, Inventory)
-- Multi-user admin / password hashing / role-based access
+- Role-based access control beyond `approved` boolean (the `role` column exists but is not enforced yet)
+- Password reset / magic-link UI (Supabase APIs are ready, just no frontend)
 - Email notifications on new lead
 - Rate limiting / captcha on the contact form
-- Production deploy config (Vercel, Docker)
+- Production deploy config
 - Automated tests

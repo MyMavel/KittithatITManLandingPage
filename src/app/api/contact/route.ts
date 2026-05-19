@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
 import { contactSchema } from "@/lib/validation";
 
 export async function POST(req: Request) {
@@ -24,14 +24,17 @@ export async function POST(req: Request) {
 
   const { name, email, company, message } = parsed.data;
 
-  const customer = await prisma.customer.create({
-    data: {
-      name,
-      email,
-      company: company ? company : null,
-      message: message ? message : null,
-    },
+  const supabase = await createClient();
+  const { error } = await supabase.from("customers").insert({
+    name,
+    email,
+    company: company ? company : null,
+    message: message ? message : null,
   });
 
-  return NextResponse.json({ ok: true, id: customer.id }, { status: 201 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true }, { status: 201 });
 }

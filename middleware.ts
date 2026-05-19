@@ -1,51 +1,33 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { jwtVerify } from "jose";
-
-const SESSION_COOKIE = "admin_session";
-
-async function isAuthenticated(token: string | undefined): Promise<boolean> {
-  if (!token) return false;
-  const secret = process.env.SESSION_SECRET;
-  if (!secret) return false;
-  try {
-    await jwtVerify(token, new TextEncoder().encode(secret));
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { updateSession } from "@/lib/supabase/middleware";
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const token = req.cookies.get(SESSION_COOKIE)?.value;
-  const authed = await isAuthenticated(token);
+  const { res, user } = await updateSession(req);
 
-  if (pathname === "/admin/login") {
-    if (authed) {
-      return NextResponse.redirect(new URL("/admin", req.url));
-    }
-    return NextResponse.next();
-  }
+  const isLoginRoute = pathname === "/admin/login";
+  const isSignupRoute = pathname === "/admin/signup";
+  const isAuthCallback = pathname.startsWith("/admin/auth/");
+  const isPublicAdminRoute = isLoginRoute || isSignupRoute || isAuthCallback;
 
   if (pathname.startsWith("/admin")) {
-    if (!authed) {
+    if (isPublicAdminRoute) {
+      if (user && (isLoginRoute || isSignupRoute)) {
+        return NextResponse.redirect(new URL("/admin", req.url));
+      }
+      return res;
+    }
+    if (!user) {
       const url = new URL("/admin/login", req.url);
       url.searchParams.set("next", pathname);
       return NextResponse.redirect(url);
     }
-    return NextResponse.next();
+    return res;
   }
 
-  if (pathname.startsWith("/api/customers")) {
-    if (!authed) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    return NextResponse.next();
-  }
-
-  return NextResponse.next();
+  return res;
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/customers/:path*"],
+  matcher: ["/admin/:path*"],
 };

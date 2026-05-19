@@ -8,11 +8,6 @@ node_modules/
 out/
 build/
 
-# prisma local db
-prisma/dev.db
-prisma/dev.db-journal
-prisma/migrations/dev/
-
 # env
 .env
 .env*.local

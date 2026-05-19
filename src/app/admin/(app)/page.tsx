@@ -1,29 +1,46 @@
-import { prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
 import { CUSTOMER_STATUSES } from "@/lib/validation";
 import StatusBadge from "@/components/admin/StatusBadge";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminDashboard() {
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+type CustomerRow = {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  created_at: string;
+};
 
-  const [total, newThisWeek, byStatus, recent] = await Promise.all([
-    prisma.customer.count(),
-    prisma.customer.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
-    prisma.customer.groupBy({ by: ["status"], _count: { _all: true } }),
-    prisma.customer.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    }),
+export default async function AdminDashboard() {
+  const supabase = await createClient();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [totalRes, weekRes, allStatusRes, recentRes] = await Promise.all([
+    supabase.from("customers").select("id", { count: "exact", head: true }),
+    supabase
+      .from("customers")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", sevenDaysAgo),
+    supabase.from("customers").select("status"),
+    supabase
+      .from("customers")
+      .select("id,name,email,status,created_at")
+      .order("created_at", { ascending: false })
+      .limit(5),
   ]);
 
+  const total = totalRes.count ?? 0;
+  const newThisWeek = weekRes.count ?? 0;
   const statusCounts: Record<string, number> = Object.fromEntries(
     CUSTOMER_STATUSES.map((s) => [s, 0]),
   );
-  for (const row of byStatus) {
-    statusCounts[row.status] = row._count._all;
+  for (const row of allStatusRes.data ?? []) {
+    const s = row.status as string;
+    statusCounts[s] = (statusCounts[s] ?? 0) + 1;
   }
+  const recent = (recentRes.data ?? []) as CustomerRow[];
 
   return (
     <div className="space-y-6">
@@ -96,7 +113,7 @@ export default async function AdminDashboard() {
                 <div className="flex items-center gap-4">
                   <StatusBadge status={c.status} />
                   <span className="text-xs text-slate-400">
-                    {new Date(c.createdAt).toLocaleDateString()}
+                    {new Date(c.created_at).toLocaleDateString()}
                   </span>
                 </div>
               </li>

@@ -1,0 +1,89 @@
+"use server";
+
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { loginSchema, signupSchema } from "@/lib/validation";
+
+export type AuthState = {
+  error?: string;
+  fieldErrors?: Record<string, string>;
+  notice?: string;
+};
+
+export async function loginAction(
+  _prev: AuthState,
+  formData: FormData,
+): Promise<AuthState> {
+  const parsed = loginSchema.safeParse({
+    email: formData.get("email"),
+    password: formData.get("password"),
+  });
+
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const k = issue.path[0];
+      if (typeof k === "string" && !fieldErrors[k]) fieldErrors[k] = issue.message;
+    }
+    return { fieldErrors };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signInWithPassword(parsed.data);
+
+  if (error) return { error: error.message };
+
+  const nextUrl = String(formData.get("next") ?? "/admin");
+  redirect(nextUrl.startsWith("/admin") ? nextUrl : "/admin");
+}
+
+export async function signupAction(
+  _prev: AuthState,
+  formData: FormData,
+): Promise<AuthState> {
+  const parsed = signupSchema.safeParse({
+    fullName: formData.get("fullName"),
+    email: formData.get("email"),
+    password: formData.get("password"),
+  });
+
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const k = issue.path[0];
+      if (typeof k === "string" && !fieldErrors[k]) fieldErrors[k] = issue.message;
+    }
+    return { fieldErrors };
+  }
+
+  const { fullName, email, password } = parsed.data;
+  const supabase = await createClient();
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { full_name: fullName },
+      emailRedirectTo: `${origin}/admin/auth/callback?next=/admin`,
+    },
+  });
+
+  if (error) return { error: error.message };
+
+  if (data.session) {
+    redirect("/admin");
+  }
+
+  return {
+    notice:
+      "Account created. Check your inbox for a confirmation email, then sign in.",
+  };
+}
+
+export async function logoutAction() {
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+  redirect("/admin/login");
+}

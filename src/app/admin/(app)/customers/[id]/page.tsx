@@ -1,11 +1,23 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
 import { CUSTOMER_STATUSES, customerUpdateSchema } from "@/lib/validation";
 import StatusBadge from "@/components/admin/StatusBadge";
 import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
+
+type CustomerDetail = {
+  id: string;
+  name: string;
+  email: string;
+  company: string | null;
+  message: string | null;
+  source: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
 
 async function updateStatus(formData: FormData) {
   "use server";
@@ -13,10 +25,11 @@ async function updateStatus(formData: FormData) {
   const status = String(formData.get("status") ?? "");
   const parsed = customerUpdateSchema.safeParse({ status });
   if (!id || !parsed.success) return;
-  await prisma.customer.update({
-    where: { id },
-    data: { status: parsed.data.status },
-  });
+  const supabase = await createClient();
+  await supabase
+    .from("customers")
+    .update({ status: parsed.data.status })
+    .eq("id", id);
   redirect(`/admin/customers/${id}`);
 }
 
@@ -24,7 +37,8 @@ async function deleteCustomer(formData: FormData) {
   "use server";
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  await prisma.customer.delete({ where: { id } });
+  const supabase = await createClient();
+  await supabase.from("customers").delete().eq("id", id);
   redirect("/admin/customers");
 }
 
@@ -36,8 +50,17 @@ export default async function CustomerDetailPage({
   params: Params;
 }) {
   const { id } = await params;
-  const customer = await prisma.customer.findUnique({ where: { id } });
-  if (!customer) notFound();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("customers")
+    .select(
+      "id,name,email,company,message,source,status,created_at,updated_at",
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error || !data) notFound();
+  const customer = data as CustomerDetail;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -65,11 +88,11 @@ export default async function CustomerDetailPage({
           <Detail label="Source" value={customer.source} />
           <Detail
             label="Created"
-            value={new Date(customer.createdAt).toLocaleString()}
+            value={new Date(customer.created_at).toLocaleString()}
           />
           <Detail
             label="Last updated"
-            value={new Date(customer.updatedAt).toLocaleString()}
+            value={new Date(customer.updated_at).toLocaleString()}
           />
         </dl>
 
@@ -89,7 +112,10 @@ export default async function CustomerDetailPage({
         <h2 className="text-base font-semibold text-slate-900">
           Update status
         </h2>
-        <form action={updateStatus} className="mt-4 flex flex-wrap items-center gap-3">
+        <form
+          action={updateStatus}
+          className="mt-4 flex flex-wrap items-center gap-3"
+        >
           <input type="hidden" name="id" value={customer.id} />
           <select
             name="status"
