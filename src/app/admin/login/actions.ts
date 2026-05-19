@@ -5,6 +5,16 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { loginSchema, signupSchema } from "@/lib/validation";
 
+const ENV_ERROR =
+  "Server is missing Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY on the host (e.g. Vercel → Settings → Environment Variables), then redeploy.";
+
+function isEnvConfigured(): boolean {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  );
+}
+
 async function getRequestOrigin(): Promise<string> {
   const fromEnv = process.env.NEXT_PUBLIC_SITE_URL;
   if (fromEnv) return fromEnv.replace(/\/$/, "");
@@ -24,6 +34,8 @@ export async function loginAction(
   _prev: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
+  if (!isEnvConfigured()) return { error: ENV_ERROR };
+
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
@@ -51,6 +63,8 @@ export async function signupAction(
   _prev: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
+  if (!isEnvConfigured()) return { error: ENV_ERROR };
+
   const parsed = signupSchema.safeParse({
     fullName: formData.get("fullName"),
     email: formData.get("email"),
@@ -92,6 +106,7 @@ export async function signupAction(
 }
 
 export async function logoutAction() {
+  if (!isEnvConfigured()) redirect("/admin/login");
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/admin/login");

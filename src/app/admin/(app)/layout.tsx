@@ -10,6 +10,13 @@ export default async function AdminAppLayout({
 }: {
   children: React.ReactNode;
 }) {
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  ) {
+    redirect("/admin/login");
+  }
+
   const supabase = await createClient();
   const {
     data: { user },

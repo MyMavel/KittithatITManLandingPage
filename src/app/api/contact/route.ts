@@ -3,6 +3,19 @@ import { createClient } from "@/lib/supabase/server";
 import { contactSchema } from "@/lib/validation";
 
 export async function POST(req: Request) {
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "Server is missing Supabase configuration. Please contact the site administrator.",
+      },
+      { status: 503 },
+    );
+  }
+
   let body: unknown;
   try {
     body = await req.json();
